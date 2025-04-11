@@ -1,0 +1,6 @@
+tcr_env/
+__pycache__/
+.ipynb_checkpoints/
+
+# Ignore raw or large data
+data/
