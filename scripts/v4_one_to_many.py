@@ -17,8 +17,10 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Compute per-distance frequency sums against high-confidence TCRs."
     )
-    p.add_argument("--mode", choices=["cmv","idh","mair","random","vatcr"], default="mair",
-                   help="Mode: 'cmv', 'idh', 'random', 'vatcr' or 'mair'")
+    p.add_argument("--highconf", choices=["cmv","invitro","random_vdjdb","random_olga","vatcr"], default="cmv",
+                   help="highconf: 'cmv', 'invitro', 'random_vdjdb', 'random_olga', 'vatcr' or 'mair'")
+    p.add_argument("--rep", choices=["emerson","mair"], default="emerson",
+                   help="repertoire choice: 'emerson' or 'mair'")
     p.add_argument("--hla", default="all",
                    help="HLA allele to stratify by (e.g. b35), or 'all' to process every repertoire")
     p.add_argument("--cmv_status", choices=["Positive","Negative"], default="all",
@@ -93,6 +95,8 @@ def compute_freqs(
     n_workers: int,
     sample_n: int,
     random_seed: int,
+    hc_seqs: list[str],
+    hc_buckets: dict[int, list[str]],
 ):
     # prepare output filenames
     out_files = {d: output_file.replace('.csv', f'_dist_{d}.csv')
@@ -164,55 +168,81 @@ def main():
 
     args = parse_args()
 
+    # single mode name
+    mode_name = f"{args.highconf}_{args.rep}"
+
     # donor subdir logic 
     donor = args.donor.lower()
     donor_subdir = '' if donor == 'all' else f'donor{args.donor}'
 
-    # set mode-specific paths and column names
-    if args.mode == 'cmv':
-        base_output_dir = os.path.join(PROJECT_ROOT, 'crdata/heatmap_output', 'cmv', args.cmv_status)
+    # set highconf parameters
+    if args.highconf == 'cmv':
+        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', mode_name, args.cmv_status)
         highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/High_Confidence_CMV_TCR"
         highconf_file   = 'WITHOUT_EBV_highconf.tsv'
         count_label     = 'count'
-        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
-        seq_col         = 'cdr3_amino_acid'
-        freq_col        = 'productive_frequency'
+        # input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
+        # seq_col         = 'cdr3_amino_acid'
+        # freq_col        = 'productive_frequency'
 
-    elif args.mode == 'idh':
-        base_output_dir = os.path.join(PROJECT_ROOT,'data/heatmap_output', 'idh', args.cmv_status, donor_subdir)
+    elif args.highconf == 'invitro':
+        base_output_dir = os.path.join(PROJECT_ROOT,'data/heatmap_output', mode_name, args.cmv_status, donor_subdir)
         highconf_dir    =  "/Users/ishaharris/Projects/TCR/TCR-Isha/data/IDH_Heatmaps/highconf"
         highconf_file   = 'All_IDH_highconf.tsv' if donor == 'all' else f'donor{args.donor}_IDH_highconf.tsv'
         count_label     = 'freq_t2'
-        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
-        seq_col         = 'cdr3_amino_acid'
-        freq_col        = 'productive_frequency'
+        # input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
+        # seq_col         = 'cdr3_amino_acid'
+        # freq_col        = 'productive_frequency'
 
-    elif args.mode == 'mair':
-        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', 'mair', donor_subdir)
-        highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/IDH_Heatmaps/highconf"
-        highconf_file   = 'All_IDH_highconf.tsv' if donor == 'all' else f'donor{args.donor}_IDH_highconf.tsv'
-        count_label     = 'freq_t2'
-        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/mair_glioma_batch_1'
-        seq_col         = 'aaSeqCDR3'
-        freq_col        = 'readFraction'
+    # elif args.mode == 'mair':
+    #     base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', 'mair', donor_subdir)
+    #     highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/IDH_Heatmaps/highconf"
+    #     highconf_file   = 'All_IDH_highconf.tsv' if donor == 'all' else f'donor{args.donor}_IDH_highconf.tsv'
+    #     count_label     = 'freq_t2'
+    #     input_dir       = '/Volumes/IshaVerbat/Isha/TCR/mair_glioma_batch_1'
+    #     seq_col         = 'aaSeqCDR3'
+    #     freq_col        = 'readFraction'
     
-    elif args.mode == 'random':
-        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', 'random')
+    elif args.highconf == 'random_vdjdb':
+        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', mode_name)
         highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/vdjdb"
         highconf_file   = 'vdjdb_sample_100_epitopes.tsv'
         count_label     = 'count'
+        # input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
+        # seq_col         = 'cdr3_amino_acid'
+        # freq_col        = 'productive_frequency'
+
+    elif args.highconf == 'random_olga':
+        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', mode_name)
+        highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/highconf"
+        highconf_file   = 'highconf_olga_random.tsv'
+        count_label     = 'count'
+        # input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
+        # seq_col         = 'cdr3_amino_acid'
+        # freq_col        = 'productive_frequency'
+        
+
+    elif args.highconf == 'vatcr':
+        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', mode_name)
+        highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/vatcr_heatmaps"
+        highconf_file   = 'highconf_vatcr.tsv'
+        count_label     = 'freq_t2'
+        # input_dir       = '/Volumes/IshaVerbat/Isha/TCR/collapsed_mair_glioma_batch_1'
+        # seq_col         = 'aaSeqCDR3'
+        # freq_col        = 'readFraction'
+
+    
+
+    if args.rep == 'mair':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/collapsed_mair_glioma_batch_1'
+        seq_col         = 'aaSeqCDR3'
+        freq_col        = 'readFraction'
+
+    elif args.rep == 'emerson':
         input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
         seq_col         = 'cdr3_amino_acid'
         freq_col        = 'productive_frequency'
 
-    elif args.mode == 'vatcr':
-        base_output_dir = os.path.join(PROJECT_ROOT, 'data/heatmap_output', 'vatcr')
-        highconf_dir    = "/Users/ishaharris/Projects/TCR/TCR-Isha/data/vatcr_heatmaps"
-        highconf_file   = 'highconf_vatcr.tsv'
-        count_label     = 'freq_t2'
-        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/mair_glioma_batch_1'
-        seq_col         = 'aaSeqCDR3'
-        freq_col        = 'readFraction'
 
 
 
@@ -221,9 +251,12 @@ def main():
 
     # build file list
     if args.hla.lower() == 'all':
-        if args.mode == 'mair':
+        if args.rep == 'mair':
             metadata = pd.read_csv("/Users/ishaharris/Projects/TCR/TCR-Isha/data/Repertoires/mair/mair_glioma_batch_1_metadata.tsv", sep="\t")
-            file_names = metadata[metadata['repID'] == 'R1']['sampleID'].apply(lambda x: f"{x}.clones_TRB.tsv").tolist()
+            file_names = metadata[metadata['repID'] == 'R1']['subjectID'].apply(
+                lambda x: f"collapsed_mair_{x}.tsv"
+            ).unique().tolist()
+
         else:
             # Load metadata and apply CMV filter for Emerson files starting with 'P'
             metadata = pd.read_csv("/Users/ishaharris/Projects/TCR/TCR-Isha/data/Repertoires/Cohort01_whole_metadata.tsv", sep="\t")
@@ -239,15 +272,33 @@ def main():
         pl = pd.read_csv('data/Repertoires/CMV_HLA_groups.tsv', sep=args.sep).iloc[0].to_dict()
         file_names = ast.literal_eval(pl[key])
 
-    # load highconf buckets
+    # ----- Check file names --------
+
+    # Absolute path for each file
+    full_paths = [os.path.join(input_dir, fname) for fname in file_names]
+    # Filter out files that don’t exist
+    valid_file_names = [
+        fname for fname, full_path in zip(file_names, full_paths)
+        if os.path.exists(full_path)
+    ]
+    # Report how many were removed
+    n_removed = len(file_names) - len(valid_file_names)
+    if n_removed > 0:
+        print(f"⚠️ Skipped {n_removed} non-existent files.")
+    file_names = valid_file_names  # use this filtered list going forward
+
+    # ----------- load highconf buckets ---------
     if highconf_file:
         highconf = pd.read_csv(os.path.join(highconf_dir, highconf_file), sep=args.sep)
+        aa_col = highconf.columns[highconf.columns.str.contains('amino|aa', case = False)][0]
+        highconf = highconf.groupby(aa_col, as_index = False)[count_label].sum()
         highconf = highconf.sort_values(by=count_label, ascending=False).reset_index(drop=True)
-        global hc_seqs, hc_buckets
-        hc_seqs = highconf[highconf.columns[highconf.columns.str.contains('amino')][0]].tolist()
+        hc_seqs = highconf[aa_col].tolist()
+
         hc_buckets = defaultdict(list)
         for seq in hc_seqs:
             hc_buckets[len(seq)].append(seq)
+
     else:
         hc_seqs = []
         hc_buckets = {}
@@ -264,6 +315,8 @@ def main():
         n_workers=args.n_workers,
         sample_n=args.sample_n,
         random_seed=args.random_seed,
+        hc_seqs=hc_seqs,
+        hc_buckets=hc_buckets,
     )
 
 if __name__ == '__main__':
