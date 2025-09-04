@@ -19,8 +19,8 @@ def parse_args():
     )
     p.add_argument("--highconf", choices=["cmv","invitro","random_vdjdb","random_olga","vatcr"], default="cmv",
                    help="highconf: 'cmv', 'invitro', 'random_vdjdb', 'random_olga', 'vatcr' or 'mair'")
-    p.add_argument("--rep", choices=["emerson","mair"], default="emerson",
-                   help="repertoire choice: 'emerson' or 'mair'")
+    p.add_argument("--rep", choices=["emerson","mair","emerson_top10000","mair_top10000"], default="emerson",
+                   help="repertoire choice: 'emerson' or 'mair', add _top10000 to use top 10k clones only")
     p.add_argument("--hla", default="all",
                    help="HLA allele to stratify by (e.g. b35), or 'all' to process every repertoire")
     p.add_argument("--cmv_status", choices=["Positive","Negative"], default="all",
@@ -234,14 +234,25 @@ def main():
     
 
     if args.rep == 'mair':
-        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/collapsed_mair_glioma_batch_1'
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/collapse    d_mair_glioma_batch_1'
         seq_col         = 'aaSeqCDR3'
         freq_col        = 'readFraction'
 
     elif args.rep == 'emerson':
-        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01'
-        seq_col         = 'cdr3_amino_acid'
-        freq_col        = 'productive_frequency'
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Filtered'
+        seq_col         = 'amino_acid'
+        freq_col        = 'frequency'
+
+    elif args.rep == 'mair_top10000':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/collapsed_mair_glioma_batch_1/top10000'
+        seq_col         = 'aaSeqCDR3'
+        freq_col        = 'readFraction'
+
+    elif args.rep == 'emerson_top10000':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Filtered/top10000'
+        seq_col         = 'amino_acid'
+        freq_col        = 'frequency'
+
 
 
 
@@ -249,6 +260,10 @@ def main():
     os.makedirs(base_output_dir, exist_ok=True)
     output_file = os.path.join(base_output_dir, f"{args.hla if args.hla!='all' else 'all'}.csv")
 
+
+
+
+############
     # build file list
     if args.hla.lower() == 'all':
         if args.rep == 'mair':
@@ -271,6 +286,8 @@ def main():
         key = f"{args.hla}_cmv_{args.cmv_status}"
         pl = pd.read_csv('data/Repertoires/CMV_HLA_groups.tsv', sep=args.sep).iloc[0].to_dict()
         file_names = ast.literal_eval(pl[key])
+
+###############
 
     # ----- Check file names --------
 
