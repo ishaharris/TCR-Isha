@@ -1,48 +1,56 @@
 #!/usr/bin/env python3
 """
-Debulk large TSVs by selecting specific columns.
+Debulk large TSVs by selecting specific columns, with metadata-based file filtering.
 
-- Reads TSVs from INPUT_DIR (external disk).
+- Reads TSVs from INPUT_DIR.
+- Filters files based on metadata in METADATA_FILE and specified filter rules.
 - Skips files whose debulked output already exists (resume-safe).
-- Writes processed TSVs to OUTPUT_DIR (internal disk).
-- Streams with chunks (doesn't load entire files into memory).
-- Parallelised across 4 processes (files run concurrently).
+- Writes processed TSVs to OUTPUT_DIR.
+- Streams in chunks to avoid loading whole files.
+- Parallelised across WORKERS processes.
 
-Dependencies: pandas, tqdm
+Dependencies: pandas, tqdm, PyYAML
 """
 
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 import pandas as pd
 from tqdm import tqdm
+import yaml
 
 # ───────────────────────── CONFIG ─────────────────────────
-INPUT_DIR   = Path("/Volumes/IshaVerbat/Isha/TCR/All_Emerson_Cohort01")
-OUTPUT_DIR  = Path("/Users/ishaharris/Projects/TCR/TCR-Isha/data/All_Debulked_Emerson")
-FILENAME_PREFIX = "P"  # only process files starting with this
-
-SELECTED_COLS = [
-    "rearrangement", "amino_acid", "seq_reads", "frequency",
-    "productive_frequency", "v_gene","v_allele", "d_gene","d_allele",
-    "j_gene", "j_allele"
-]
-
-# TSV parsing / writing options
-SEP         = "\t"
-CHUNKSIZE   = 250_000      # tune for your machine/files
-ENCODING    = "utf-8"
-ON_BAD_LINES= "skip"       # or "warn" (pandas >= 2.0)
-WORKERS     = 4            # number of parallel processes
+CONFIG_PATH = Path("yaml/config.yaml")  # specify config YAML path
 # ──────────────────────── /CONFIG ────────────────────────
 
 
+def load_config(config_path: Path) -> Dict[str, Any]:
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
 def already_processed(out_path: Path) -> bool:
-    """Return True if an output file exists and is non-empty (simple resume-safe check)."""
     try:
         return out_path.exists() and out_path.stat().st_size > 0
     except Exception:
         return False
+
+
+def filter_files_by_metadata(
+    metadata_path: Path, input_dir: Path, filter_columns: List[str], filter_values: Dict[str, List[Any]]
+) -> List[Path]:
+    """Return list of repertoire files whose metadata rows match the filter criteria."""
+    meta = pd.read_csv(metadata_path, sep="\t", dtype=str)
+    meta["sample_name"] = meta["sample_name"].astype(str) + ".tsv"
+
+    for col, vals in filter_values.items():
+        if col not in meta.columns:
+            raise ValueError(f"Column '{col}' not in metadata file.")
+        meta = meta[meta[col].isin(vals)]
+
+    matched_filenames = set(meta["sample_name"].astype(str).tolist())
+    all_files = [p for p in input_dir.iterdir() if p.is_file()]
+    return [p for p in all_files if p.name in matched_filenames]
 
 
 def process_one_file(
@@ -54,20 +62,12 @@ def process_one_file(
     encoding: str,
     on_bad_lines: str,
 ) -> Tuple[str, bool, Optional[str]]:
-    """
-    Process a single TSV: select columns and write streamed TSV to out_path.
-    Returns (filename, success, message_or_error).
-    """
     try:
-        # Peek header to decide which cols are available
-        header_df = pd.read_csv(
-            in_path, sep=sep, nrows=0, encoding=encoding, on_bad_lines=on_bad_lines, dtype=str
-        )
+        header_df = pd.read_csv(in_path, sep=sep, nrows=0, encoding=encoding, on_bad_lines=on_bad_lines, dtype=str)
         available_cols = list(header_df.columns)
         usecols = [c for c in selected_cols if c in available_cols]
 
         if not usecols:
-            # Mark as processed by writing an empty header-only file (so resume will skip next time)
             pd.DataFrame(columns=[]).to_csv(out_path, sep=sep, index=False, encoding=encoding)
             return (in_path.name, True, "no requested columns present; wrote empty header")
 
@@ -90,13 +90,11 @@ def process_one_file(
             wrote_any = True
 
         if not wrote_any:
-            # Input had only header/no rows; still create an empty file with header
             pd.DataFrame(columns=usecols).to_csv(out_path, sep=sep, index=False, encoding=encoding)
 
         return (in_path.name, True, f"wrote cols: {usecols}{missing_msg}")
 
     except Exception as e:
-        # Remove partial output so resume logic isn't confused later
         try:
             if out_path.exists():
                 out_path.unlink()
@@ -106,21 +104,33 @@ def process_one_file(
 
 
 def main():
-    input_dir = INPUT_DIR.resolve()
-    if not input_dir.is_dir():
-        raise FileNotFoundError(f"Input directory not found: {input_dir}")
+    cfg = load_config(CONFIG_PATH)
+
+    INPUT_DIR = Path(cfg["input_dir"]).resolve()
+    OUTPUT_DIR = Path(cfg["output_dir"]).resolve()
+    METADATA_FILE = Path(cfg["metadata_file"]).resolve()
+    SELECTED_COLS = cfg["selected_cols"]
+    SEP = cfg.get("sep", "\t")
+    CHUNKSIZE = cfg.get("chunksize", 250_000)
+    ENCODING = cfg.get("encoding", "utf-8")
+    ON_BAD_LINES = cfg.get("on_bad_lines", "skip")
+    WORKERS = cfg.get("workers", 4)
+
+    FILTER_COLUMNS = cfg.get("filter_columns", [])
+    FILTER_VALUES = cfg.get("filter_values", {})
+
+    if not INPUT_DIR.is_dir():
+        raise FileNotFoundError(f"Input directory not found: {INPUT_DIR}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Gather files
-    all_files = [p for p in input_dir.iterdir() if p.is_file()]
-    matching  = sorted([p for p in all_files if p.name.startswith(FILENAME_PREFIX)])
+    # Filter files based on metadata
+    matching = filter_files_by_metadata(METADATA_FILE, INPUT_DIR, FILTER_COLUMNS, FILTER_VALUES)
 
     if not matching:
-        print(f"No files starting with '{FILENAME_PREFIX}' found in {input_dir}")
+        print("No files match metadata criteria.")
         return
 
-    # Build worklist with resume-safe skip
     tasks = []
     skipped = 0
     for in_path in matching:
@@ -130,39 +140,25 @@ def main():
             continue
         tasks.append((in_path, out_path))
 
-    print(f"Found {len(all_files)} file(s) in folder; {len(matching)} match prefix '{FILENAME_PREFIX}'.")
+    print(f"Filtered {len(matching)} files by metadata.")
     print(f"Resume check → Skipped (existing): {skipped}, To process: {len(tasks)}.\n")
 
     if not tasks:
         print("Nothing to do. All matching files already processed.")
         return
 
-    # Submit tasks to a 4-process pool
     results_ok = 0
     results_err = 0
     with ProcessPoolExecutor(max_workers=WORKERS) as ex:
         futures = [
-            ex.submit(
-                process_one_file,
-                in_path,
-                out_path,
-                SELECTED_COLS,
-                SEP,
-                CHUNKSIZE,
-                ENCODING,
-                ON_BAD_LINES,
-            )
+            ex.submit(process_one_file, in_path, out_path, SELECTED_COLS, SEP, CHUNKSIZE, ENCODING, ON_BAD_LINES)
             for (in_path, out_path) in tasks
         ]
 
-        # Overall progress bar (one tick per completed file)
         for fut in tqdm(as_completed(futures), total=len(futures), desc="Processing files", unit="file"):
             fname, ok, msg = fut.result()
             if ok:
-                if msg:
-                    print(f"✓ {fname}: {msg}")
-                else:
-                    print(f"✓ {fname}")
+                print(f"✓ {fname}: {msg}")
                 results_ok += 1
             else:
                 print(f"✖ {fname}: {msg}")
