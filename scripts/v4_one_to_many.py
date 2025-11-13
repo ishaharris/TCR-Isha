@@ -19,7 +19,8 @@ def parse_args():
     )
     p.add_argument("--highconf", choices=["cmv","invitro","random_vdjdb","random_olga","vatcr", "specials", "AC04_S1"], default="cmv",
                    help="highconf: 'cmv', 'invitro', 'random_vdjdb', 'random_olga', 'vatcr' or 'mair'")
-    p.add_argument("--rep", choices=["emerson","mair","emerson_top10000","mair_top10000","covid", "covid_top10000"], default="emerson",
+    p.add_argument("--rep", choices=["emerson","mair","emerson_top10000","mair_top10000","covid", "covid_top10000",
+                                     "rytlewski", "rytlewski_top10000", "werner", "werner_top10000" ], default="emerson",
                    help="repertoire choice: 'emerson' or 'mair', add _top10000 to use top 10k clones only")
     p.add_argument("--hla", default="all",
                    help="HLA allele to stratify by (e.g. b35), or 'all' to process every repertoire")
@@ -283,6 +284,27 @@ def main():
         seq_col         = 'amino_acid'
         freq_col        = 'productive_frequency'
 
+    elif args.rep == 'rytlewski':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/Debulked_Rytlewski'
+        seq_col         = 'amino_acid'
+        freq_col        = 'productive_frequency'
+
+    elif args.rep == 'rytlewski_top10000':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/Debulked_Rytlewski/top10000'
+        seq_col         = 'amino_acid'
+        freq_col        = 'productive_frequency'
+
+    elif args.rep == 'werner':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/Debulked_Werner'
+        seq_col         = 'amino_acid'
+        freq_col        = 'productive_frequency'
+
+    elif args.rep == 'werner_top10000':
+        input_dir       = '/Volumes/IshaVerbat/Isha/TCR/Debulked_Werner/top10000'
+        seq_col         = 'amino_acid'
+        freq_col        = 'productive_frequency'
+    
+
 
 
     os.makedirs(base_output_dir, exist_ok=True)
@@ -309,7 +331,7 @@ def main():
             ]
             file_names = [name + '.tsv' for name in filtered['sample_name']]
 
-        elif args.rep in ('covid', 'covid_top10000'):
+        elif args.rep in ('covid', 'covid_top10000', 'rytlewski', 'rytlewski_top10000', 'werner', 'werner_top10000'):
             file_names = [f for f in os.listdir(input_dir) if f.endswith('.tsv')]
 
 
@@ -339,7 +361,7 @@ def main():
     # ----------- load highconf buckets ---------
     if highconf_file:
         highconf = pd.read_csv(os.path.join(highconf_dir, highconf_file), sep=args.sep)
-        aa_col = highconf.columns[highconf.columns.str.contains('amino|aa|cdr3', case = False)][0]
+        aa_col = highconf.columns[highconf.columns.str.contains('amino|aa', case = False)][0]
         highconf = highconf.groupby(aa_col, as_index = False)[count_label].sum()
         highconf = highconf.sort_values(by=count_label, ascending=False).reset_index(drop=True)
         hc_seqs = highconf[aa_col].tolist()
