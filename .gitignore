@@ -4,3 +4,4 @@ __pycache__/
 
 # Ignore raw or large data
 data/
+figs/
